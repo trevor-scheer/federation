@@ -3,7 +3,7 @@ use crate::context::{FieldSet, QueryPlanningContext};
 use crate::model::ResponsePath;
 use graphql_parser::query::FragmentDefinition;
 use graphql_parser::schema::{Field, TypeDefinition};
-use graphql_parser::{schema, Name};
+use graphql_parser::{schema};
 use linked_hash_map::LinkedHashMap;
 
 #[derive(Debug)]
