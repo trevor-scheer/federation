@@ -1,3 +1,5 @@
+use apollo_query_planner::model::Selection::InlineFragment;
+use apollo_query_planner::model::Selection::Field;
 use async_trait::async_trait;
 use tide::{
     http::{ Method},
@@ -10,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use apollo_query_planner::QueryPlanner;
 use apollo_query_planner::model::*;
 use graphql_parser::schema;
+use futures::future::{BoxFuture, FutureExt};
 
 #[async_std::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -78,7 +81,7 @@ async fn execute_query_plan<'schema, 'request>(
     let mut data: serde_json::Value = serde_json::from_str(r#"{}"#)?;
 
     if query_plan.node.is_some() {
-        execute_node(context, query_plan.node.as_ref().unwrap(), &mut data).await;
+        execute_node(&context, query_plan.node.as_ref().unwrap(), &mut data, &vec![]).await;
     } else {
         unimplemented!("Introspection not supported yet");
     };
@@ -87,45 +90,62 @@ async fn execute_query_plan<'schema, 'request>(
     Ok(GraphQLResponse { data: Some(data) } )
 }
 
-async fn execute_node<'schema, 'request>(context: ExecutionContext<'schema, 'request>, node: &PlanNode, results: &mut serde_json::Value) {
-    match node {
-      PlanNode::Sequence { nodes: _ } => {
-        unimplemented!("Sequence not implemented yet")
-        //   for node in nodes {
-        //       execute_node(context, node, results).await;
-        //   }
-      }
-      PlanNode::Parallel { nodes: _ } => {
-        unimplemented!("Parallel not implemented yet")
-        // for node in nodes {
-        //   std::thread::spawn(async move || {
-        //     execute_node(context, node, results).await;
-        //   });
-        // }
-      }
-      PlanNode::Fetch(fetch_node) => {
-          let _fetch_result = execute_fetch(context, fetch_node, results).await;
-        //   if fetch_result.is_err() {
-        //       context.errors.push(fetch_result.errors)
-        //   }
-      }
-      PlanNode::Flatten(_flatten_node) => {
-          unimplemented!("Flatten not implemented yet")
-      }
-    }
+fn execute_node<'schema, 'request>(
+    context: &'request ExecutionContext<'schema, 'request>,
+    node: &'request PlanNode,
+    results: &'request mut serde_json::Value,
+    path: &'request ResponsePath
+) -> BoxFuture<'request, ()> {
+    async move {
+        match node {
+            PlanNode::Sequence { nodes } => {
+                for node in nodes {
+                    execute_node(context, &node, results, path).await;
+                }
+            }
+            PlanNode::Parallel { nodes: _ } => {
+              unimplemented!("Parallel not implemented yet")
+              // for node in nodes {
+              //   std::thread::spawn(async move || {
+              //     execute_node(context, node, results).await;
+              //   });
+              // }
+            }
+            PlanNode::Fetch(fetch_node) => {
+                let _fetch_result = execute_fetch(context, &fetch_node, results).await;
+              //   if fetch_result.is_err() {
+              //       context.errors.push(fetch_result.errors)
+              //   }
+            }
+            PlanNode::Flatten(flatten_node) => {
+                let mut flattend_path: Vec<String> = Vec::new();
+                flattend_path.extend(path.to_owned());
+                flattend_path.extend(flatten_node.path.to_owned());
+
+                flatten_results_at_path(results, path);
+
+                execute_node(
+                    context,
+                    &flatten_node.node,
+                    results,
+                    &flattend_path
+                ).await;
+            }
+          }
+    }.boxed()
+    
 }
 
 async fn execute_fetch<'schema, 'request>(
-    context: ExecutionContext<'schema, 'request>,
+    context: &ExecutionContext<'schema, 'request>,
     fetch: &FetchNode,
     results: &mut serde_json::Value
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let url = context.service_map[&fetch.service_name].clone();
 
-    // if let Some(entities) = results.as_array_mut() {
-        // if entities.len() < 1 {
-        //     return Ok(());
-        // }
+    // if !results.is_array() {
+    //     let mut results = serde_json::Value::Array(vec![results]);
+    // }
     
     let mut variables: HashMap<String, &serde_json::Value> = HashMap::new();
     if fetch.variable_usages.len() > 0 {
@@ -139,16 +159,66 @@ async fn execute_fetch<'schema, 'request>(
         }
     }
 
-    if let Some(_requires) = &fetch.requires {
-        unimplemented!("Requires fetch not implemented yet")
+    if let Some(requires) = &fetch.requires {
+        let mut representations: Vec<serde_json::Value> = Vec::new();
+        let mut representations_to_entity: Vec<usize> = Vec::new();
+        
+        if variables.get_key_value("representations").is_some() {
+            unimplemented!("Need to throw here because `Variables cannot contain key 'represenations'");
+        }
+
+        if let Some(entities) = results.as_array_mut() {
+            for (index, entity) in entities.iter().enumerate() {
+                let representation = execute_selection_set(&entity, &requires);
+                if representation.is_object() && representation.get("__typenane").is_some() {
+                    representations.push(representation);
+                    representations_to_entity.push(index);
+                }
+            }
+            
+            let representation_variables = serde_json::Value::Array(representations);
+            variables.insert("representations".to_string(), &representation_variables);
+    
+            let data_received = send_operation(
+                context,
+                url,
+                fetch.operation.clone(),
+                variables
+            ).await?;
+    
+            if let Some(recieved_entities) = data_received.get("_entities") {
+                for index in 0..entities.len() {
+                    let result = entities.get_mut(representations_to_entity[index]).unwrap();
+                    json_patch::merge(result, &recieved_entities[index]);
+                }
+            } else {
+                unimplemented!("Expexected data._entities to contain elements");
+            }
+
+            
+        } else if results.is_object() {
+            let entity = results.as_object_mut().unwrap().values_mut().nth(0).unwrap();
+            let representation = execute_selection_set(&entity, &requires);
+            let representation_variables = serde_json::json!([representation]);
+            variables.insert("representations".to_string(), &representation_variables);
+            
+            let data_received = send_operation(
+                context,
+                url,
+                fetch.operation.clone(),
+                variables
+            ).await?;
+
+            if let Some(recieved_entities) = data_received.get("_entities") {
+                json_patch::merge(entity, &recieved_entities[0]);
+            } else {
+                unimplemented!("Expexected data._entities to contain elements");
+            }
+        }
+
     } else {
         let data_received = send_operation(context, url, fetch.operation.clone(), variables).await?;
-        
-        // for mut entity in entities {
-            json_patch::merge(results, &data_received);
-            // dbg!(&results, &data_received);
-        // }
-
+        json_patch::merge(results, &data_received);
     }
 
     Ok(())
@@ -156,7 +226,7 @@ async fn execute_fetch<'schema, 'request>(
 }
 
 async fn send_operation<'schema, 'request>(
-    context: ExecutionContext<'schema, 'request>,
+    context: &ExecutionContext<'schema, 'request>,
     url: String,
     operation: String,
     variables: HashMap<String, &serde_json::Value>,
@@ -241,11 +311,109 @@ impl ResponseExt for Response {
         let mut resp = self;
         if res.is_ok() {
             let data = &res.unwrap();
-            dbg!(&data.data);
             resp.set_body(Body::from_json(data)?);
         }
         Ok(resp)
     }
+}
+
+fn flatten_results_at_path<'request>(
+    value: &'request mut serde_json::Value,
+    path: &ResponsePath
+) {
+    
+    fn merge<'request>(value: &'request mut serde_json::Value, path: &ResponsePath) -> &'request serde_json::Value  {
+        if path.len() == 0 || value.is_null() {
+            return value;
+        }
+
+        if let Some((current, rest)) = path.split_first() {
+            if current == "@" {
+                if value.is_array() {
+                    let inner = value.as_array_mut().unwrap();
+                    *value = serde_json::Value::Array(inner.iter_mut()
+                        .filter_map(|element| {
+                            let results = merge(element, &rest.to_owned());
+                            results.as_array()
+                        })
+                        .flat_map(|element| element)
+                        .map(|element| element.to_owned())
+                        .collect());
+                    
+                    
+                    return value;
+                } else {
+                    return value;
+                }
+            } else {
+                let inner: &mut serde_json::Value = value.get_mut(&current).unwrap();
+                return merge(inner, &rest.to_owned());
+            }
+        }
+
+        value
+    }
+    
+    merge(value, path);
+
+}
+
+fn execute_selection_set(source: &serde_json::Value, selections: &SelectionSet) -> serde_json::Value {
+    if source.is_null() {
+        return serde_json::Value::default();
+    }
+
+    let mut result: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+
+    for selection in selections {
+        match selection {
+            Field(field) => {
+                let response_name = match &field.alias {
+                    Some(alias) => alias,
+                    None => &field.name,
+                };
+
+                if let Some(response_value) = source.get(response_name) {
+                    if response_value.is_array() {
+                        let inner = response_value.as_array().unwrap();
+                        result[response_name] = serde_json::Value::Array(inner.iter()
+                            .map(|element| {
+                                if field.selections.is_some() {
+                                    return execute_selection_set(element, selections);
+                                } else {
+                                    return serde_json::to_value(element).unwrap();
+                                }
+                            })
+                            .map(|element| element.to_owned())
+                            .collect());
+
+                    } else if field.selections.is_some() {
+                        result[response_name] = execute_selection_set(response_value, &field.selections.as_ref().unwrap());
+                    } else {
+                        result[response_name] = serde_json::to_value(response_value).unwrap();
+                    }
+                } else {
+                    unimplemented!("Field was not found in response");
+                }
+
+            }
+            InlineFragment(fragment) => {
+                if fragment.type_condition.is_none() {
+                    continue;
+                }
+                let typename = source.get("__typename");
+                if typename.is_none() {
+                    continue;
+                }
+
+                if typename.unwrap().as_str().unwrap() == fragment.type_condition.as_ref().unwrap().to_string() {
+                    json_patch::merge(&mut result, &execute_selection_set(source, &fragment.selections));
+                }
+            }
+        }
+    }
+
+    result
 }
 
 // ------
