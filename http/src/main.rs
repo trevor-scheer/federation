@@ -6,6 +6,7 @@ use tide::{
     Body, Request, Response,  StatusCode,
 };
 use std::collections::HashMap;
+use std::sync::{RwLock};
 use serde::{Deserialize, Serialize};
 
 
@@ -78,22 +79,26 @@ async fn execute_query_plan<'schema, 'request>(
         request_context,
     };
 
-    let mut data: serde_json::Value = serde_json::from_str(r#"{}"#)?;
+    // XXX this will need to be a reference to the data structure instead of owning it
+    // I think, because we need to be able to do inner locks. It feels like I need a cell structure here
+    // or maybe a Mutex?
+    let data_lock: RwLock<serde_json::Value> = RwLock::new(serde_json::from_str(r#"{}"#)?);
 
     if query_plan.node.is_some() {
-        execute_node(&context, query_plan.node.as_ref().unwrap(), &mut data, &vec![]).await;
+        execute_node(&context, query_plan.node.as_ref().unwrap(), &data_lock, &vec![]).await;
     } else {
         unimplemented!("Introspection not supported yet");
     };
 
 
+    let data = data_lock.into_inner().unwrap();
     Ok(GraphQLResponse { data: Some(data) } )
 }
 
 fn execute_node<'schema, 'request>(
     context: &'request ExecutionContext<'schema, 'request>,
     node: &'request PlanNode,
-    results: &'request mut serde_json::Value,
+    results: &'request RwLock<serde_json::Value>,
     path: &'request ResponsePath
 ) -> BoxFuture<'request, ()> {
     async move {
@@ -103,13 +108,13 @@ fn execute_node<'schema, 'request>(
                     execute_node(context, &node, results, path).await;
                 }
             }
-            PlanNode::Parallel { nodes: _ } => {
-              unimplemented!("Parallel not implemented yet")
-              // for node in nodes {
-              //   std::thread::spawn(async move || {
-              //     execute_node(context, node, results).await;
-              //   });
-              // }
+            PlanNode::Parallel { nodes } => {
+                let mut promises = Vec::new();
+                
+                for node in nodes {
+                    promises.push(execute_node(context, &node, results, path));
+                }
+                futures::future::join_all(promises).await;
             }
             PlanNode::Fetch(fetch_node) => {
                 let _fetch_result = execute_fetch(context, &fetch_node, results).await;
@@ -122,104 +127,184 @@ fn execute_node<'schema, 'request>(
                 flattend_path.extend(path.to_owned());
                 flattend_path.extend(flatten_node.path.to_owned());
 
-                flatten_results_at_path(results, path);
+                let inner_lock: RwLock<serde_json::Value> = RwLock::new(serde_json::from_str(r#"{}"#).unwrap());
+                
+                /*
+                    results_to_flatten = {
+                        topProducts: [
+                            { __typename: "Book", isbn: "1234" }
+                        ]
+                    }
+
+                    inner_to_merge = {
+                        { __typename: "Book", isbn: "1234" }
+                    }
+                */
+                {
+                    let mut results_to_flatten = results.write().unwrap();
+                    let flat = flatten_results_at_path(&mut *results_to_flatten, &flatten_node.path);
+
+                    let mut inner_to_merge = inner_lock.write().unwrap();
+                    json_patch::merge(&mut *inner_to_merge, &flat);
+                }
 
                 execute_node(
                     context,
                     &flatten_node.node,
-                    results,
+                    // XXX this needs to be the result of flatten_results_at_path
+                    // but that needs to retain its pointer to the parent data structure
+                    // and we need to create a new RwLock here to stay thread safe...
+                    // essentially we need to pass a nested part of the response tree
+                    // to execute_node while keeping it as a reference to the ancestor response
+                    // tree. 
+                    &inner_lock,
                     &flattend_path
                 ).await;
+
+                // once the node has been executed, we need to restitch it back to the parent
+                // node on the tree of result data
+                /*
+                    results_to_flatten = {
+                        topProducts: []
+                    }
+
+                    inner_to_merge = {
+                        { __typename: "Book", isbn: "1234", name: "Best book ever" }
+                    }
+
+                    path = [topProducts, @]
+                */
+                {
+                    let mut results_to_flatten = results.write().unwrap();
+                    let inner = inner_lock.into_inner().unwrap();
+                    merge_flattend_results(&mut *results_to_flatten, &inner, &flatten_node.path);
+                }
             }
           }
     }.boxed()
     
 }
 
+fn merge_flattend_results(
+    parent_data: &mut serde_json::Value,
+    child_data: &serde_json::Value,
+    path: &ResponsePath
+) {
+    if path.len() == 0 || child_data.is_null() {
+        json_patch::merge(&mut *parent_data, &child_data);
+        return;
+    }
+
+    if let Some((current, rest)) = path.split_first() {
+        if current == "@" {
+            if parent_data.is_array() {
+                json_patch::merge(&mut *parent_data, &child_data);
+            }
+        } else {
+            let inner: &mut serde_json::Value = parent_data.get_mut(&current).unwrap();
+            merge_flattend_results(inner, child_data, &rest.to_owned());
+        }
+    }
+}
+
 async fn execute_fetch<'schema, 'request>(
     context: &ExecutionContext<'schema, 'request>,
     fetch: &FetchNode,
-    results: &mut serde_json::Value
+    results_lock: &'request RwLock<serde_json::Value>
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+
     let url = context.service_map[&fetch.service_name].clone();
 
-    // if !results.is_array() {
-    //     let mut results = serde_json::Value::Array(vec![results]);
-    // }
-    
-    let mut variables: HashMap<String, &serde_json::Value> = HashMap::new();
+    let mut variables: HashMap<String, serde_json::Value> = HashMap::new();
     if fetch.variable_usages.len() > 0 {
         for variable_name in &fetch.variable_usages {
             if let Some(vars) = &context.request_context.graphql_request.variables {
                 let variable = vars.get(&variable_name);
                 if variable.is_some() {
-                    variables.insert(variable_name.to_string(), variable.unwrap());
+                    // XXX copy variables into hashmap
+                    // variables.insert(variable_name.to_string(), *variable.unwrap());
                 }
             }
         }
     }
 
+    let mut representations: Vec<serde_json::Value> = Vec::new();
+    let mut representations_to_entity: Vec<usize> = Vec::new();
+
     if let Some(requires) = &fetch.requires {
-        let mut representations: Vec<serde_json::Value> = Vec::new();
-        let mut representations_to_entity: Vec<usize> = Vec::new();
-        
         if variables.get_key_value("representations").is_some() {
             unimplemented!("Need to throw here because `Variables cannot contain key 'represenations'");
         }
 
-        if let Some(entities) = results.as_array_mut() {
-            for (index, entity) in entities.iter().enumerate() {
-                let representation = execute_selection_set(&entity, &requires);
-                if representation.is_object() && representation.get("__typenane").is_some() {
+        let results = results_lock.read().unwrap();
+
+        let representation_variables = match &*results {
+            serde_json::Value::Array(entities) => {
+                for (index, entity) in entities.iter().enumerate() {
+                    let representation = execute_selection_set(&entity, &requires);
+                    if representation.is_object() && representation.get("__typename").is_some() {
+                        representations.push(representation);
+                        representations_to_entity.push(index);
+                    }
+                }
+                serde_json::Value::Array(representations)
+            },
+            serde_json::Value::Object(_entity) => {
+                let representation = execute_selection_set(&results, &requires);
+                if representation.is_object() && representation.get("__typename").is_some() {
                     representations.push(representation);
-                    representations_to_entity.push(index);
+                    representations_to_entity.push(0);
                 }
-            }
-            
-            let representation_variables = serde_json::Value::Array(representations);
-            variables.insert("representations".to_string(), &representation_variables);
-    
-            let data_received = send_operation(
-                context,
-                url,
-                fetch.operation.clone(),
-                variables
-            ).await?;
-    
-            if let Some(recieved_entities) = data_received.get("_entities") {
-                for index in 0..entities.len() {
-                    let result = entities.get_mut(representations_to_entity[index]).unwrap();
-                    json_patch::merge(result, &recieved_entities[index]);
-                }
-            } else {
-                unimplemented!("Expexected data._entities to contain elements");
-            }
+                // let mut index = 0;
+                // for entity in entities.values() {
+                //     index += 1;
 
-            
-        } else if results.is_object() {
-            let entity = results.as_object_mut().unwrap().values_mut().nth(0).unwrap();
-            let representation = execute_selection_set(&entity, &requires);
-            let representation_variables = serde_json::json!([representation]);
-            variables.insert("representations".to_string(), &representation_variables);
-            
-            let data_received = send_operation(
-                context,
-                url,
-                fetch.operation.clone(),
-                variables
-            ).await?;
+                //     let representation = execute_selection_set(&entity, &requires);
+                    // if representation.is_object() && representation.get("__typename").is_some() {
+                    //     representations.push(representation);
+                    //     representations_to_entity.push(index);
+                    // }
+                // }
+                serde_json::Value::Array(representations)
+            },
+            _ => { 
+                println!("In empty match line 199");
+                serde_json::Value::Array(vec![]) }
+        };
 
-            if let Some(recieved_entities) = data_received.get("_entities") {
-                json_patch::merge(entity, &recieved_entities[0]);
-            } else {
-                unimplemented!("Expexected data._entities to contain elements");
-            }
-        }
-
-    } else {
-        let data_received = send_operation(context, url, fetch.operation.clone(), variables).await?;
-        json_patch::merge(results, &data_received);
+        variables.insert("representations".to_string(), representation_variables);
     }
+
+    let data_received = send_operation(context, url, fetch.operation.clone(), &variables).await?;
+
+    if let Some(_requires) = &fetch.requires {
+
+        if let Some(recieved_entities) = data_received.get("_entities") {
+            let mut entities_to_merge = results_lock.write().unwrap();
+            match &*entities_to_merge {
+                serde_json::Value::Array(_entities) => {
+                    let entities = entities_to_merge.as_array_mut().unwrap();
+                    for index in 0..entities.len() {
+                        if let Some(rep_index) = representations_to_entity.get(index) {
+                            let result = entities.get_mut(*rep_index).unwrap();
+                            json_patch::merge(result, &recieved_entities[index]);
+                        } 
+                        
+                    }
+                }
+                serde_json::Value::Object(_entity) => {
+                    json_patch::merge(&mut *entities_to_merge, &recieved_entities[0]);
+                },
+                _ => {  }
+            }
+        } else {
+            unimplemented!("Expexected data._entities to contain elements");
+        }
+    } else {
+        let mut results_to_merge = results_lock.write().unwrap();
+        json_patch::merge(&mut *results_to_merge, &data_received);
+    }
+
 
     Ok(())
 
@@ -229,7 +314,7 @@ async fn send_operation<'schema, 'request>(
     context: &ExecutionContext<'schema, 'request>,
     url: String,
     operation: String,
-    variables: HashMap<String, &serde_json::Value>,
+    variables: &HashMap<String, serde_json::Value>,
 ) -> std::result::Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let request = GraphQLRequest {
@@ -320,41 +405,35 @@ impl ResponseExt for Response {
 fn flatten_results_at_path<'request>(
     value: &'request mut serde_json::Value,
     path: &ResponsePath
-) {
+) -> &'request serde_json::Value {
     
-    fn merge<'request>(value: &'request mut serde_json::Value, path: &ResponsePath) -> &'request serde_json::Value  {
-        if path.len() == 0 || value.is_null() {
-            return value;
-        }
-
-        if let Some((current, rest)) = path.split_first() {
-            if current == "@" {
-                if value.is_array() {
-                    let inner = value.as_array_mut().unwrap();
-                    *value = serde_json::Value::Array(inner.iter_mut()
-                        .filter_map(|element| {
-                            let results = merge(element, &rest.to_owned());
-                            results.as_array()
-                        })
-                        .flat_map(|element| element)
-                        .map(|element| element.to_owned())
-                        .collect());
-                    
-                    
-                    return value;
-                } else {
-                    return value;
-                }
-            } else {
-                let inner: &mut serde_json::Value = value.get_mut(&current).unwrap();
-                return merge(inner, &rest.to_owned());
-            }
-        }
-
-        value
+    if path.len() == 0 || value.is_null() {
+        return value;
     }
-    
-    merge(value, path);
+    if let Some((current, rest)) = path.split_first() {
+        if current == "@" {
+            if value.is_array() {
+                let array_value = value.as_array_mut().unwrap();
+                *value = serde_json::Value::Array(array_value
+                    .into_iter()
+                    .map(|element| {
+                        let result = flatten_results_at_path(element, &rest.to_owned());
+                        result.to_owned()
+                    })
+                    .collect()
+                );
+
+                return value
+            } else {
+                return value;
+            }
+        } else {
+            let inner: &mut serde_json::Value = value.get_mut(&current).unwrap();
+            return flatten_results_at_path(inner, &rest.to_owned());
+        }
+    }
+
+    value
 
 }
 
