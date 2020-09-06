@@ -1,26 +1,20 @@
-use apollo_query_planner::model::Selection::InlineFragment;
 use apollo_query_planner::model::Selection::Field;
+use apollo_query_planner::model::Selection::InlineFragment;
 use async_trait::async_trait;
-use tide::{
-    http::{ Method},
-    Body, Request, Response,  StatusCode,
-};
-use std::collections::HashMap;
-use std::sync::{RwLock};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::RwLock;
+use tide::{http::Method, Body, Request, Response, StatusCode};
 
-
-use apollo_query_planner::QueryPlanner;
 use apollo_query_planner::model::*;
-use graphql_parser::schema;
+use apollo_query_planner::QueryPlanner;
 use futures::future::{BoxFuture, FutureExt};
+use graphql_parser::schema;
 
 #[async_std::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tide::log::start();
     let mut app = tide::new();
-
-
 
     // Start server
     app.at("/").post(|req: Request<()>| async move {
@@ -32,12 +26,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sy
 
         let mut service_list: HashMap<String, String> = HashMap::new();
 
-        let schema_defintion: Option<&schema::SchemaDefinition> = planner.schema
+        let schema_defintion: Option<&schema::SchemaDefinition> = planner
+            .schema
             .definitions
             .iter()
             .filter_map(|d| match d {
                 schema::Definition::Schema(schema) => Some(schema),
-                 _ => None
+                _ => None,
             })
             .last();
 
@@ -45,20 +40,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sy
             unimplemented!()
         }
 
-        let service_map_tuples = apollo_query_planner::get_directive!(schema_defintion.unwrap().directives, "graph")
-            .map(|owner_dir| directive_args_as_map(&owner_dir.arguments))
-            .map(|args| {
-                (
-                    String::from(args["name"]),
-                    String::from(args["url"])
-                )
-            });
+        let service_map_tuples =
+            apollo_query_planner::get_directive!(schema_defintion.unwrap().directives, "graph")
+                .map(|owner_dir| directive_args_as_map(&owner_dir.arguments))
+                .map(|args| (String::from(args["name"]), String::from(args["url"])));
 
         for (graph, url) in service_map_tuples {
             service_list.insert(graph, url);
         }
 
-        let query_plan = planner.plan(&request_context.graphql_request.query).unwrap();
+        let query_plan = planner
+            .plan(&request_context.graphql_request.query)
+            .unwrap();
         let resp = execute_query_plan(&query_plan, &service_list, &request_context).await;
         Response::new(StatusCode::Ok).body_graphql(resp)
     });
@@ -85,21 +78,26 @@ async fn execute_query_plan<'schema, 'request>(
     let data_lock: RwLock<serde_json::Value> = RwLock::new(serde_json::from_str(r#"{}"#)?);
 
     if query_plan.node.is_some() {
-        execute_node(&context, query_plan.node.as_ref().unwrap(), &data_lock, &vec![]).await;
+        execute_node(
+            &context,
+            query_plan.node.as_ref().unwrap(),
+            &data_lock,
+            &vec![],
+        )
+        .await;
     } else {
         unimplemented!("Introspection not supported yet");
     };
 
-
     let data = data_lock.into_inner().unwrap();
-    Ok(GraphQLResponse { data: Some(data) } )
+    Ok(GraphQLResponse { data: Some(data) })
 }
 
 fn execute_node<'schema, 'request>(
     context: &'request ExecutionContext<'schema, 'request>,
     node: &'request PlanNode,
     results: &'request RwLock<serde_json::Value>,
-    path: &'request ResponsePath
+    path: &'request ResponsePath,
 ) -> BoxFuture<'request, ()> {
     async move {
         match node {
@@ -110,7 +108,7 @@ fn execute_node<'schema, 'request>(
             }
             PlanNode::Parallel { nodes } => {
                 let mut promises = Vec::new();
-                
+
                 for node in nodes {
                     promises.push(execute_node(context, &node, results, path));
                 }
@@ -118,17 +116,18 @@ fn execute_node<'schema, 'request>(
             }
             PlanNode::Fetch(fetch_node) => {
                 let _fetch_result = execute_fetch(context, &fetch_node, results).await;
-              //   if fetch_result.is_err() {
-              //       context.errors.push(fetch_result.errors)
-              //   }
+                //   if fetch_result.is_err() {
+                //       context.errors.push(fetch_result.errors)
+                //   }
             }
             PlanNode::Flatten(flatten_node) => {
                 let mut flattend_path: Vec<String> = Vec::new();
                 flattend_path.extend(path.to_owned());
                 flattend_path.extend(flatten_node.path.to_owned());
 
-                let inner_lock: RwLock<serde_json::Value> = RwLock::new(serde_json::from_str(r#"{}"#).unwrap());
-                
+                let inner_lock: RwLock<serde_json::Value> =
+                    RwLock::new(serde_json::from_str(r#"{}"#).unwrap());
+
                 /*
                     results_to_flatten = {
                         topProducts: [
@@ -142,24 +141,14 @@ fn execute_node<'schema, 'request>(
                 */
                 {
                     let mut results_to_flatten = results.write().unwrap();
-                    let flat = flatten_results_at_path(&mut *results_to_flatten, &flatten_node.path);
+                    let flat =
+                        flatten_results_at_path(&mut *results_to_flatten, &flatten_node.path);
 
                     let mut inner_to_merge = inner_lock.write().unwrap();
                     json_patch::merge(&mut *inner_to_merge, &flat);
                 }
 
-                execute_node(
-                    context,
-                    &flatten_node.node,
-                    // XXX this needs to be the result of flatten_results_at_path
-                    // but that needs to retain its pointer to the parent data structure
-                    // and we need to create a new RwLock here to stay thread safe...
-                    // essentially we need to pass a nested part of the response tree
-                    // to execute_node while keeping it as a reference to the ancestor response
-                    // tree. 
-                    &inner_lock,
-                    &flattend_path
-                ).await;
+                execute_node(context, &flatten_node.node, &inner_lock, &flattend_path).await;
 
                 // once the node has been executed, we need to restitch it back to the parent
                 // node on the tree of result data
@@ -180,15 +169,15 @@ fn execute_node<'schema, 'request>(
                     merge_flattend_results(&mut *results_to_flatten, &inner, &flatten_node.path);
                 }
             }
-          }
-    }.boxed()
-    
+        }
+    }
+    .boxed()
 }
 
 fn merge_flattend_results(
     parent_data: &mut serde_json::Value,
     child_data: &serde_json::Value,
-    path: &ResponsePath
+    path: &ResponsePath,
 ) {
     if path.len() == 0 || child_data.is_null() {
         json_patch::merge(&mut *parent_data, &child_data);
@@ -210,9 +199,8 @@ fn merge_flattend_results(
 async fn execute_fetch<'schema, 'request>(
     context: &ExecutionContext<'schema, 'request>,
     fetch: &FetchNode,
-    results_lock: &'request RwLock<serde_json::Value>
+    results_lock: &'request RwLock<serde_json::Value>,
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-
     let url = context.service_map[&fetch.service_name].clone();
 
     let mut variables: HashMap<String, serde_json::Value> = HashMap::new();
@@ -233,7 +221,9 @@ async fn execute_fetch<'schema, 'request>(
 
     if let Some(requires) = &fetch.requires {
         if variables.get_key_value("representations").is_some() {
-            unimplemented!("Need to throw here because `Variables cannot contain key 'represenations'");
+            unimplemented!(
+                "Need to throw here because `Variables cannot contain key 'represenations'"
+            );
         }
 
         let results = results_lock.read().unwrap();
@@ -248,28 +238,19 @@ async fn execute_fetch<'schema, 'request>(
                     }
                 }
                 serde_json::Value::Array(representations)
-            },
+            }
             serde_json::Value::Object(_entity) => {
                 let representation = execute_selection_set(&results, &requires);
                 if representation.is_object() && representation.get("__typename").is_some() {
                     representations.push(representation);
                     representations_to_entity.push(0);
                 }
-                // let mut index = 0;
-                // for entity in entities.values() {
-                //     index += 1;
-
-                //     let representation = execute_selection_set(&entity, &requires);
-                    // if representation.is_object() && representation.get("__typename").is_some() {
-                    //     representations.push(representation);
-                    //     representations_to_entity.push(index);
-                    // }
-                // }
                 serde_json::Value::Array(representations)
-            },
-            _ => { 
+            }
+            _ => {
                 println!("In empty match line 199");
-                serde_json::Value::Array(vec![]) }
+                serde_json::Value::Array(vec![])
+            }
         };
 
         variables.insert("representations".to_string(), representation_variables);
@@ -278,7 +259,6 @@ async fn execute_fetch<'schema, 'request>(
     let data_received = send_operation(context, url, fetch.operation.clone(), &variables).await?;
 
     if let Some(_requires) = &fetch.requires {
-
         if let Some(recieved_entities) = data_received.get("_entities") {
             let mut entities_to_merge = results_lock.write().unwrap();
             match &*entities_to_merge {
@@ -288,14 +268,13 @@ async fn execute_fetch<'schema, 'request>(
                         if let Some(rep_index) = representations_to_entity.get(index) {
                             let result = entities.get_mut(*rep_index).unwrap();
                             json_patch::merge(result, &recieved_entities[index]);
-                        } 
-                        
+                        }
                     }
                 }
                 serde_json::Value::Object(_entity) => {
                     json_patch::merge(&mut *entities_to_merge, &recieved_entities[0]);
-                },
-                _ => {  }
+                }
+                _ => {}
             }
         } else {
             unimplemented!("Expexected data._entities to contain elements");
@@ -305,9 +284,7 @@ async fn execute_fetch<'schema, 'request>(
         json_patch::merge(&mut *results_to_merge, &data_received);
     }
 
-
     Ok(())
-
 }
 
 async fn send_operation<'schema, 'request>(
@@ -316,16 +293,20 @@ async fn send_operation<'schema, 'request>(
     operation: String,
     variables: &HashMap<String, serde_json::Value>,
 ) -> std::result::Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
-
     let request = GraphQLRequest {
         query: operation,
-        operation_name: context.request_context.graphql_request.operation_name.clone(),
+        operation_name: context
+            .request_context
+            .graphql_request
+            .operation_name
+            .clone(),
         variables: Some(serde_json::to_value(&variables).unwrap()),
     };
 
     let mut res = surf::post(&url)
         .set_header("userId", "1")
-        .body_json(&request)?.await?;
+        .body_json(&request)?
+        .await?;
     let GraphQLResponse { data } = res.body_json().await?;
     if data.is_some() {
         return Ok(data.unwrap());
@@ -369,15 +350,15 @@ trait RequestExt<State: Clone + Send + Sync + 'static>: Sized {
 impl<State: Clone + Send + Sync + 'static> RequestExt<State> for Request<State> {
     async fn body_graphql(mut self) -> tide::Result<RequestContext> {
         if self.method() == Method::Post {
-           let graphql_request: GraphQLRequest = self.body_json().await?;
+            let graphql_request: GraphQLRequest = self.body_json().await?;
 
-           Ok(RequestContext {
-               graphql_request: async_graphql::http::GQLRequest {
-                   query: graphql_request.query,
-                   operation_name: graphql_request.operation_name,
-                   variables: graphql_request.variables
-               }
-           })
+            Ok(RequestContext {
+                graphql_request: async_graphql::http::GQLRequest {
+                    query: graphql_request.query,
+                    operation_name: graphql_request.operation_name,
+                    variables: graphql_request.variables,
+                },
+            })
         } else {
             unimplemented!("Only supports POST requests currently");
         }
@@ -388,11 +369,17 @@ impl<State: Clone + Send + Sync + 'static> RequestExt<State> for Request<State> 
 ///
 pub trait ResponseExt: Sized {
     /// Set body as the result of a GraphQL query.
-    fn body_graphql(self, res: std::result::Result<GraphQLResponse, Box<dyn std::error::Error + Send + Sync>>) -> tide::Result<Self>;
+    fn body_graphql(
+        self,
+        res: std::result::Result<GraphQLResponse, Box<dyn std::error::Error + Send + Sync>>,
+    ) -> tide::Result<Self>;
 }
 
 impl ResponseExt for Response {
-    fn body_graphql(self, res: std::result::Result<GraphQLResponse, Box<dyn std::error::Error + Send + Sync>>) -> tide::Result<Self> {
+    fn body_graphql(
+        self,
+        res: std::result::Result<GraphQLResponse, Box<dyn std::error::Error + Send + Sync>>,
+    ) -> tide::Result<Self> {
         let mut resp = self;
         if res.is_ok() {
             let data = &res.unwrap();
@@ -404,9 +391,8 @@ impl ResponseExt for Response {
 
 fn flatten_results_at_path<'request>(
     value: &'request mut serde_json::Value,
-    path: &ResponsePath
+    path: &ResponsePath,
 ) -> &'request serde_json::Value {
-    
     if path.len() == 0 || value.is_null() {
         return value;
     }
@@ -414,16 +400,17 @@ fn flatten_results_at_path<'request>(
         if current == "@" {
             if value.is_array() {
                 let array_value = value.as_array_mut().unwrap();
-                *value = serde_json::Value::Array(array_value
-                    .into_iter()
-                    .map(|element| {
-                        let result = flatten_results_at_path(element, &rest.to_owned());
-                        result.to_owned()
-                    })
-                    .collect()
+                *value = serde_json::Value::Array(
+                    array_value
+                        .into_iter()
+                        .map(|element| {
+                            let result = flatten_results_at_path(element, &rest.to_owned());
+                            result.to_owned()
+                        })
+                        .collect(),
                 );
 
-                return value
+                return value;
             } else {
                 return value;
             }
@@ -434,10 +421,12 @@ fn flatten_results_at_path<'request>(
     }
 
     value
-
 }
 
-fn execute_selection_set(source: &serde_json::Value, selections: &SelectionSet) -> serde_json::Value {
+fn execute_selection_set(
+    source: &serde_json::Value,
+    selections: &SelectionSet,
+) -> serde_json::Value {
     if source.is_null() {
         return serde_json::Value::default();
     }
@@ -455,26 +444,30 @@ fn execute_selection_set(source: &serde_json::Value, selections: &SelectionSet) 
                 if let Some(response_value) = source.get(response_name) {
                     if response_value.is_array() {
                         let inner = response_value.as_array().unwrap();
-                        result[response_name] = serde_json::Value::Array(inner.iter()
-                            .map(|element| {
-                                if field.selections.is_some() {
-                                    return execute_selection_set(element, selections);
-                                } else {
-                                    return serde_json::to_value(element).unwrap();
-                                }
-                            })
-                            .map(|element| element.to_owned())
-                            .collect());
-
+                        result[response_name] = serde_json::Value::Array(
+                            inner
+                                .iter()
+                                .map(|element| {
+                                    if field.selections.is_some() {
+                                        return execute_selection_set(element, selections);
+                                    } else {
+                                        return serde_json::to_value(element).unwrap();
+                                    }
+                                })
+                                .map(|element| element.to_owned())
+                                .collect(),
+                        );
                     } else if field.selections.is_some() {
-                        result[response_name] = execute_selection_set(response_value, &field.selections.as_ref().unwrap());
+                        result[response_name] = execute_selection_set(
+                            response_value,
+                            &field.selections.as_ref().unwrap(),
+                        );
                     } else {
                         result[response_name] = serde_json::to_value(response_value).unwrap();
                     }
                 } else {
                     unimplemented!("Field was not found in response");
                 }
-
             }
             InlineFragment(fragment) => {
                 if fragment.type_condition.is_none() {
@@ -485,8 +478,13 @@ fn execute_selection_set(source: &serde_json::Value, selections: &SelectionSet) 
                     continue;
                 }
 
-                if typename.unwrap().as_str().unwrap() == fragment.type_condition.as_ref().unwrap().to_string() {
-                    json_patch::merge(&mut result, &execute_selection_set(source, &fragment.selections));
+                if typename.unwrap().as_str().unwrap()
+                    == fragment.type_condition.as_ref().unwrap().to_string()
+                {
+                    json_patch::merge(
+                        &mut result,
+                        &execute_selection_set(source, &fragment.selections),
+                    );
                 }
             }
         }
@@ -496,7 +494,9 @@ fn execute_selection_set(source: &serde_json::Value, selections: &SelectionSet) 
 }
 
 // ------
-fn directive_args_as_map<'q>(args: &'q [(schema::Txt<'q>, schema::Value<'q>)]) -> HashMap<schema::Txt<'q>, schema::Txt<'q>> {
+fn directive_args_as_map<'q>(
+    args: &'q [(schema::Txt<'q>, schema::Value<'q>)],
+) -> HashMap<schema::Txt<'q>, schema::Txt<'q>> {
     args.iter()
         .map(|(k, v)| {
             let str = apollo_query_planner::letp!(schema::Value::String(str) = v => str);
