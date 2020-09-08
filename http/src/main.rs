@@ -165,7 +165,16 @@ fn execute_node<'schema, 'request>(
                 */
                 {
                     let mut results_to_flatten = results.write().unwrap();
-                    let inner = inner_lock.into_inner().unwrap();
+                    let inner = inner_lock.write().unwrap();
+                    /*
+                        XXX
+                        This currently doesn't support parallel flatten nodes. Afacit, the last
+                        node to return "wins" in the merge and overwrites existing data that was there.
+                        Not sure if we need a different storage method than an RwLock or if the
+                        flatten setup in merge_flattend_results isn't correct, or if the json_patch::merge
+                        isn't the right tool for the job here.
+
+                    */
                     merge_flattend_results(&mut *results_to_flatten, &inner, &flatten_node.path);
                 }
             }
