@@ -170,19 +170,15 @@ dependencies = [
 
 [[package]]
 name = "async-graphql"
-version = "1.18.0"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a550ad8cf87cd15f7da23d790aba5e8cff062a253b5806cfff9fb72b28117072"
+checksum = "d50604fc984ef1bf497f229b47353ca35a842fcfcee27a715b62253d906e599f"
 dependencies = [
- "Inflector",
- "anyhow",
  "async-graphql-derive",
  "async-graphql-parser",
  "async-stream",
  "async-trait",
- "base64",
  "bson",
- "byteorder",
  "bytes 0.5.6",
  "chrono",
  "chrono-tz",
@@ -193,7 +189,6 @@ dependencies = [
  "indexmap",
  "itertools",
  "log",
- "mime",
  "multer",
  "once_cell",
  "parking_lot",
@@ -211,9 +206,9 @@ dependencies = [
 
 [[package]]
 name = "async-graphql-derive"
-version = "1.18.0"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f54d4cf6e943df852836c6fad201691f7b14e2e0893aa9c4b7a87612a23a590d"
+checksum = "1a5abf43fe40a9620458abd93178499aa336445abbd48fba8e25a1a8a7fd5415"
 dependencies = [
  "Inflector",
  "async-graphql-parser",
@@ -226,9 +221,9 @@ dependencies = [
 
 [[package]]
 name = "async-graphql-parser"
-version = "1.18.0"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d35d802ea54276e5210b1cb158d02bd07c37ce54665941b0eb0b1242f3f9c3ba"
+checksum = "ef77d1893f105bac47c649f2f28bf22d3b2f257a6f21ac90144c1d13e8532715"
 dependencies = [
  "pest",
  "pest_derive",
@@ -689,7 +684,7 @@ dependencies = [
  "percent-encoding",
  "rand",
  "sha2",
- "time 0.2.18",
+ "time 0.2.19",
  "version_check",
 ]
 
@@ -799,9 +794,9 @@ checksum = "d4d0e2d24e5ee3b23a01de38eefdcd978907890701f08ffffd4cb457ca4ee8d6"
 
 [[package]]
 name = "derive_more"
-version = "0.99.9"
+version = "0.99.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "298998b1cf6b5b2c8a7b023dfd45821825ce3ba8a8af55c921a0e734e4653f76"
+checksum = "1dcfabdab475c16a93d669dddfc393027803e347d09663f524447f642fbb84ba"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2018,18 +2013,18 @@ checksum = "f638d531eccd6e23b980caf34876660d38e265409d8e99b397ab71eb3612fad0"
 
 [[package]]
 name = "serde"
-version = "1.0.115"
+version = "1.0.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e54c9a88f2da7238af84b5101443f0c0d0a3bbdc455e34a5c9497b1903ed55d5"
+checksum = "96fe57af81d28386a513cbc6858332abc6117cfdb5999647c6444b8f43a370a5"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.115"
+version = "1.0.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "609feed1d0a73cc36a0182a840a9b37b4a82f0b1150369f0536a9e3f2a31dc48"
+checksum = "f630a6370fd8e457873b4bd2ffdae75408bc291ba72be773772a4c2a065d9ae8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2381,9 +2376,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.2.18"
+version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12785163ae8a1cbb52a5db39af4a5baabd3fe49f07f76f952f89d7e89e5ce531"
+checksum = "80c1a1fd93112fc50b11c43a1def21f926be3c18884fad676ea879572da070a1"
 dependencies = [
  "const_fn",
  "libc",
