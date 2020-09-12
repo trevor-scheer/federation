@@ -10,51 +10,72 @@ use apollo_query_planner::model::*;
 use apollo_query_planner::QueryPlanner;
 use futures::future::{BoxFuture, FutureExt};
 use graphql_parser::schema;
+use serde_json::{Value,Map};
+
+#[derive(Clone)]
+struct State<'app> {
+    planner: QueryPlanner<'app>,
+    service_list: HashMap<String, String>,
+}
 
 #[async_std::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tide::log::start();
-    let mut app = tide::new();
+
+    // Federation stuff
+    let schema = include_str!("./acephei.graphql");
+    let planner = QueryPlanner::new(schema);
+
+    let mut service_list: HashMap<String, String> = HashMap::new();
+
+    let schema_defintion: Option<&schema::SchemaDefinition> = planner
+        .schema
+        .definitions
+        .iter()
+        .filter_map(|d| match d {
+            schema::Definition::Schema(schema) => Some(schema),
+            _ => None,
+        })
+        .last();
+
+    if schema_defintion.is_none() {
+        unimplemented!()
+    }
+
+    let service_map_tuples =
+        apollo_query_planner::get_directive!(schema_defintion.unwrap().directives, "graph")
+            .map(|owner_dir| directive_args_as_map(&owner_dir.arguments))
+            .map(|args| (String::from(args["name"]), String::from(args["url"])));
+
+    for (graph, url) in service_map_tuples {
+        service_list.insert(graph, url);
+    }
+
+    let state = State {
+        planner,
+        service_list,
+    };
+
+    let mut app = tide::with_state(state);
 
     // Start server
-    app.at("/").post(|req: Request<()>| async move {
-        let request_context = req.body_graphql().await?;
+    app.at("/")
+        // 'static, much like cake, is a lie but should be valid because
+        // the state is not going to be moved within the life of the app
+        // XXX look into this more
+        .post(|mut req: Request<State<'static>>| async move {
+            let request_context = req.body_graphql().await?;
 
-        // Federation stuff
-        let schema = include_str!("./acephei.graphql");
-        let planner = QueryPlanner::new(schema);
+            let state = req.state();
 
-        let mut service_list: HashMap<String, String> = HashMap::new();
+            let query_plan = state
+                .planner
+                .plan(&request_context.graphql_request.query)
+                .unwrap();
 
-        let schema_defintion: Option<&schema::SchemaDefinition> = planner
-            .schema
-            .definitions
-            .iter()
-            .filter_map(|d| match d {
-                schema::Definition::Schema(schema) => Some(schema),
-                _ => None,
-            })
-            .last();
-
-        if schema_defintion.is_none() {
-            unimplemented!()
-        }
-
-        let service_map_tuples =
-            apollo_query_planner::get_directive!(schema_defintion.unwrap().directives, "graph")
-                .map(|owner_dir| directive_args_as_map(&owner_dir.arguments))
-                .map(|args| (String::from(args["name"]), String::from(args["url"])));
-
-        for (graph, url) in service_map_tuples {
-            service_list.insert(graph, url);
-        }
-
-        let query_plan = planner
-            .plan(&request_context.graphql_request.query)
-            .unwrap();
-        let resp = execute_query_plan(&query_plan, &service_list, &request_context).await;
-        Response::new(StatusCode::Ok).body_graphql(resp)
-    });
+            let resp = execute_query_plan(&query_plan, &state.service_list, &request_context).await;
+            Response::new(StatusCode::Ok).body_graphql(resp)
+        });
     app.listen("127.0.0.1:8080").await?;
     Ok(())
 }
@@ -145,7 +166,7 @@ fn execute_node<'schema, 'request>(
                         flatten_results_at_path(&mut *results_to_flatten, &flatten_node.path);
 
                     let mut inner_to_merge = inner_lock.write().unwrap();
-                    json_patch::merge(&mut *inner_to_merge, &flat);
+                    merge(&mut *inner_to_merge, &flat);
                 }
 
                 execute_node(context, &flatten_node.node, &inner_lock, &flattend_path).await;
@@ -171,7 +192,7 @@ fn execute_node<'schema, 'request>(
                         This currently doesn't support parallel flatten nodes. Afacit, the last
                         node to return "wins" in the merge and overwrites existing data that was there.
                         Not sure if we need a different storage method than an RwLock or if the
-                        flatten setup in merge_flattend_results isn't correct, or if the json_patch::merge
+                        flatten setup in merge_flattend_results isn't correct, or if the merge
                         isn't the right tool for the job here.
 
                     */
@@ -189,14 +210,16 @@ fn merge_flattend_results(
     path: &ResponsePath,
 ) {
     if path.len() == 0 || child_data.is_null() {
-        json_patch::merge(&mut *parent_data, &child_data);
+        merge(&mut *parent_data, &child_data);
         return;
     }
 
     if let Some((current, rest)) = path.split_first() {
         if current == "@" {
             if parent_data.is_array() {
-                json_patch::merge(&mut *parent_data, &child_data);
+                // dbg!(&parent_data);
+                // dbg!(&child_data);
+                merge(&mut *parent_data, &child_data);
             }
         } else {
             let inner: &mut serde_json::Value = parent_data.get_mut(&current).unwrap();
@@ -276,12 +299,12 @@ async fn execute_fetch<'schema, 'request>(
                     for index in 0..entities.len() {
                         if let Some(rep_index) = representations_to_entity.get(index) {
                             let result = entities.get_mut(*rep_index).unwrap();
-                            json_patch::merge(result, &recieved_entities[index]);
+                            merge(result, &recieved_entities[index]);
                         }
                     }
                 }
                 serde_json::Value::Object(_entity) => {
-                    json_patch::merge(&mut *entities_to_merge, &recieved_entities[0]);
+                    merge(&mut *entities_to_merge, &recieved_entities[0]);
                 }
                 _ => {}
             }
@@ -290,7 +313,7 @@ async fn execute_fetch<'schema, 'request>(
         }
     } else {
         let mut results_to_merge = results_lock.write().unwrap();
-        json_patch::merge(&mut *results_to_merge, &data_received);
+        merge(&mut *results_to_merge, &data_received);
     }
 
     Ok(())
@@ -352,12 +375,12 @@ struct RequestContext {
 #[async_trait]
 trait RequestExt<State: Clone + Send + Sync + 'static>: Sized {
     /// Convert a query to `RequestContext`.
-    async fn body_graphql(self) -> tide::Result<RequestContext>;
+    async fn body_graphql(&mut self) -> tide::Result<RequestContext>;
 }
 
 #[async_trait]
 impl<State: Clone + Send + Sync + 'static> RequestExt<State> for Request<State> {
-    async fn body_graphql(mut self) -> tide::Result<RequestContext> {
+    async fn body_graphql(&mut self) -> tide::Result<RequestContext> {
         if self.method() == Method::Post {
             let graphql_request: GraphQLRequest = self.body_json().await?;
 
@@ -490,7 +513,7 @@ fn execute_selection_set(
                 if typename.unwrap().as_str().unwrap()
                     == fragment.type_condition.as_ref().unwrap().to_string()
                 {
-                    json_patch::merge(
+                    merge(
                         &mut result,
                         &execute_selection_set(source, &fragment.selections),
                     );
@@ -512,4 +535,108 @@ fn directive_args_as_map<'q>(
             (*k, str.as_str())
         })
         .collect()
+}
+
+fn merge(target: &mut Value, source: &Value) {
+    if source.is_null() {
+        return;
+    }
+
+    match (target, source) {
+        (&mut Value::Object(ref mut map), &Value::Object(ref source)) => {
+            for (key, source_value) in source {
+                let target_value = map.entry(key.as_str()).or_insert_with(|| serde_json::Value::Null);
+
+                if !target_value.is_null() && (source_value.is_object() || source_value.is_array() ){
+                    merge(target_value, source_value);
+                } else {
+                    *target_value = source_value.clone();
+                }
+            }
+        }
+        (&mut Value::Array(ref mut array), &Value::Array(ref source)) => {
+            for (index, source_value) in source.iter().enumerate() {
+                if let Some(target_value) = array.get_mut(index) {
+                    if !target_value.is_null() && source_value.is_object() {
+                        merge(target_value, source_value);
+                    } else {
+                        *target_value = source_value.clone();
+                    }
+                } else {
+                    array.push(source_value.clone());
+                }
+            }
+        }
+        (a, b) => {
+            *a = b.clone();
+        }
+    }
+}
+
+#[cfg(test)]
+mod deep_merge_test {
+    use super::*;
+    use serde_json::*;
+    #[test]
+    fn it_should_merge_objects() {
+        let mut first: Value = serde_json::from_str(r#"{"value1":"a","value2":"b"}"#).unwrap();
+        let second: Value =
+            serde_json::from_str(r#"{"value1":"a","value2":"c","value3":"d"}"#).unwrap();
+
+        merge(&mut first, &second);
+
+        assert_eq!(
+            r#"{"value1":"a","value2":"c","value3":"d"}"#,
+            first.to_string()
+        );
+    }
+    #[test]
+    fn it_should_merge_objects_in_arrays() {
+        let mut first: Value = serde_json::from_str(r#"[{"value":"a","value2":"a+"},{"value":"b"}]"#).unwrap();
+        let second: Value = serde_json::from_str(r#"[{"value":"b"},{"value":"c"}]"#).unwrap();
+
+        merge(&mut first, &second);
+        assert_eq!(
+            r#"[{"value":"b","value2":"a+"},{"value":"c"}]"#,
+            first.to_string()
+        );
+    }
+    #[test]
+    fn it_should_merge_nested_objects() {
+        let mut first: Value = serde_json::from_str(
+            r#"{"a":1,"b":{"someProperty":1,"overwrittenProperty":"clean"}}"#,
+        )
+        .unwrap();
+
+        let second: Value = serde_json::from_str(
+            r#"{"b":{"overwrittenProperty":"dirty","newProperty":"new"},"c":4}"#,
+        )
+        .unwrap();
+
+        merge(&mut first, &second);
+
+        assert_eq!(
+            r#"{"a":1,"b":{"someProperty":1,"overwrittenProperty":"dirty","newProperty":"new"},"c":4}"#,
+            first.to_string()
+        );
+    }
+    #[test]
+    fn it_should_merge_nested_objects_in_arrays() {
+        let mut first: Value = serde_json::from_str(
+            r#"{"a":1,"b":[{"c":1,"d":2}]}"#,
+        )
+        .unwrap();
+
+        let second: Value = serde_json::from_str(
+            r#"{"e":2,"b":[{"f":3}]}"#,
+        )
+        .unwrap();
+
+        merge(&mut first, &second);
+
+        assert_eq!(
+            r#"{"a":1,"b":[{"c":1,"d":2,"f":3}],"e":2}"#,
+            first.to_string()
+        );
+    }
 }

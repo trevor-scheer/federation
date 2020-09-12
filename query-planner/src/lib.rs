@@ -25,6 +25,7 @@ pub enum QueryPlanError {
 
 pub type Result<T> = std::result::Result<T, QueryPlanError>;
 
+#[derive(Clone)]
 pub struct QueryPlanner<'s> {
     pub schema: schema::Document<'s>,
 }
