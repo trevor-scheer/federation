@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "http",
+  "stargate",
   "graphql-parser",
   "query-planner",
   "query-planner-wasm"
