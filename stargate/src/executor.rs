@@ -87,7 +87,7 @@ fn execute_node<'schema, 'request>(
                     Flatten works by selecting a zip of the result tree from the
                     path on the node (i.e [topProducts, @]) and creating a temporary
                     RwLock JSON object for the data currently stored there. Then we proceed
-                    with executing the resut of the node tree in the plan. Once the nodes have
+                    with executing the result of the node tree in the plan. Once the nodes have
                     been executed, we restitch the temporary JSON back into the parent result tree
                     at the same point using the flatten path
 
@@ -103,9 +103,16 @@ fn execute_node<'schema, 'request>(
 
                 */
                 {
-                    let mut results_to_flatten = results.write().unwrap();
+                    let results_to_flatten = results.read().unwrap();
+
+                    // we make a copy of the results so that we can flatten them without mutating
+                    // the original payload
+                    let mut results_copy: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+                    merge(&mut results_copy, &results_to_flatten);
+
+
                     let flat =
-                        flatten_results_at_path(&mut *results_to_flatten, &flatten_node.path);
+                        flatten_results_at_path(&mut results_copy, &flatten_node.path);
 
                     let mut inner_to_merge = inner_lock.write().unwrap();
                     merge(&mut *inner_to_merge, &flat);
@@ -149,12 +156,21 @@ fn merge_flattend_results(
 
     if let Some((current, rest)) = path.split_first() {
         if current == "@" {
-            if parent_data.is_array() {
-                merge(&mut *parent_data, &child_data);
+            if parent_data.is_array() && child_data.is_array() {
+                let parent_array = parent_data.as_array_mut().unwrap();
+                for index in 0..parent_array.len() {
+                    if let Some(child_item) = child_data.get(index) {
+                        let parent_item = parent_data.get_mut(index).unwrap();
+                        merge_flattend_results(parent_item, child_item, &rest.to_owned());
+                    }
+                }
             }
         } else {
-            let inner: &mut serde_json::Value = parent_data.get_mut(&current).unwrap();
-            merge_flattend_results(inner, child_data, &rest.to_owned());
+            if parent_data.get(&current).is_some() {
+                let inner: &mut serde_json::Value = parent_data.get_mut(&current).unwrap();
+                merge_flattend_results(inner, child_data, &rest.to_owned());
+            }
+            
         }
     }
 }
@@ -276,6 +292,7 @@ fn flatten_results_at_path<'request>(
     value: &'request mut serde_json::Value,
     path: &ResponsePath,
 ) -> &'request serde_json::Value {
+
     if path.len() == 0 || value.is_null() {
         return value;
     }
@@ -283,11 +300,12 @@ fn flatten_results_at_path<'request>(
         if current == "@" {
             if value.is_array() {
                 let array_value = value.as_array_mut().unwrap();
+
                 *value = serde_json::Value::Array(
                     array_value
                         .into_iter()
                         .map(|element| {
-                            let result = flatten_results_at_path(element, &rest.to_owned());
+                            let result = flatten_results_at_path(element, &rest.to_owned());                           
                             result.to_owned()
                         })
                         .collect(),
@@ -298,7 +316,10 @@ fn flatten_results_at_path<'request>(
                 return value;
             }
         } else {
-            let inner: &mut serde_json::Value = value.get_mut(&current).unwrap();
+            if value.get(&current).is_none() {
+                return value;
+            }
+            let inner = value.get_mut(&current).unwrap();
             return flatten_results_at_path(inner, &rest.to_owned());
         }
     }
