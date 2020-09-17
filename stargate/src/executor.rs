@@ -104,18 +104,9 @@ fn execute_node<'schema, 'request>(
                 */
                 {
                     let results_to_flatten = results.read().unwrap();
-
-                    // we make a copy of the results so that we can flatten them without mutating
-                    // the original payload
-                    let mut results_copy: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-                    merge(&mut results_copy, &results_to_flatten);
-
-
-                    let flat =
-                        flatten_results_at_path(&mut results_copy, &flatten_node.path);
-
                     let mut inner_to_merge = inner_lock.write().unwrap();
-                    merge(&mut *inner_to_merge, &flat);
+                    *inner_to_merge = flatten_results_at_path(&mut results_to_flatten.clone(), &flatten_node.path).to_owned();
+
                 }
 
                 execute_node(context, &flatten_node.node, &inner_lock, &flattend_path).await;
