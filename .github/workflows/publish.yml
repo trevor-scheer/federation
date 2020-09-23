@@ -23,6 +23,9 @@ jobs:
           profile: minimal
           components: rustfmt, clippy
 
+      - name: Debug 1
+        run: "pwd && ls -al"
+
       - name: Cache Cargo registry, target, index
         uses: actions/cache@v2
         with:
@@ -40,6 +43,9 @@ jobs:
         with:
           command: build
           args: --release --all-features
+
+      - name: Debug 2
+        run: "pwd && ls -al"
 
       - name: Publish
         uses: elgohr/Publish-Docker-Github-Action@master
