@@ -1,0 +1,56 @@
+name: Publish on Releases
+
+on:
+  release:
+    types: created
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        id: toolchain
+        with:
+          toolchain: nightly
+          profile: minimal
+          components: rustfmt, clippy
+
+      - name: Debug 1
+        run: "pwd && ls -al"
+
+      - name: Cache Cargo registry, target, index
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-${{ steps.toolchain.outputs.rustc_hash }}-rust-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all-features
+
+      - name: Debug 2
+        run: "pwd && ls -al"
+
+      - name: Publish
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          name: trevor-scheer/federation/stargate
+          username: ${{ github.actor }}
+          password: ${{ secrets.TREVOR_PAT_FOR_GHCR }}
+          registry: docker.pkg.github.com
