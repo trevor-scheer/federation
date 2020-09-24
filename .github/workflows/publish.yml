@@ -12,6 +12,9 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
       - name: Publish
         uses: elgohr/Publish-Docker-Github-Action@master
         with:
