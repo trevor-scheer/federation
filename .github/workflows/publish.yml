@@ -53,5 +53,5 @@ jobs:
           name: trevor-scheer/federation/stargate
           username: ${{ github.actor }}
           password: ${{ secrets.TREVOR_PAT_FOR_GHCR }}
-          workdir: stargate
+          workdir: /github/workspace/stargate
           registry: docker.pkg.github.com
