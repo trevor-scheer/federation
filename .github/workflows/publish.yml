@@ -54,4 +54,4 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.TREVOR_PAT_FOR_GHCR }}
           workdir: /github/workspace/stargate
-          registry: docker.pkg.github.com
+          registry: ghcr.io
