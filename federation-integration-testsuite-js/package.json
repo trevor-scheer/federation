@@ -19,6 +19,8 @@
   "homepage": "https://github.com/apollographql/federation#readme",
   "dependencies": {
     "graphql-tag": "^2.12.6",
+    "jest-diff": "30.0.0-alpha.3",
+    "jest-matcher-utils": "30.0.0-alpha.3",
     "pretty-format": "^29.0.0"
   }
 }

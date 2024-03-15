@@ -3730,7 +3730,7 @@ describe('executeQueryPlan', () => {
           // We test all combination of `argNullable`, `defaultValue` set/unset and `valuePassed` set/unset, and all should be allowed
           // except if the value is non-nullable and has neither a default nor a value passed. In that case, just ensure the error message
           // is meaningful.
-          expect(() => getFederatedTestingSchema([s1, s2])).toThrowError(
+          expect(() => getFederatedTestingSchema([s1, s2])).toThrow(
             '[S2] On field "T.y", for @requires(fields: "x"): Missing mandatory value for argument "opt" of field "T.x" in selection "x"',
           );
           return;

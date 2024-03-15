@@ -46,7 +46,7 @@ it('executes a query plan over concrete types', async () => {
 
   expect(data).toEqual({ me: { id: 1, name: 'James' } });
   expect(queryPlan).toCallService('accounts');
-  expect(me).toBeCalled();
+  expect(me).toHaveBeenCalled();
 });
 
 it('does not remove __typename on root types', async () => {
@@ -88,7 +88,7 @@ it('does not remove __typename if that is all that is requested on an entity', a
 
   expect(data).toEqual({ me: { __typename: 'User' } });
   expect(queryPlan).toCallService('accounts');
-  expect(me).toBeCalled();
+  expect(me).toHaveBeenCalled();
 });
 
 it('does not remove __typename if that is all that is requested on a value type', async () => {
@@ -115,5 +115,5 @@ it('does not remove __typename if that is all that is requested on a value type'
 
   expect(data).toEqual({ me: { account: { __typename: 'Account' } } });
   expect(queryPlan).toCallService('accounts');
-  expect(me).toBeCalled();
+  expect(me).toHaveBeenCalled();
 });

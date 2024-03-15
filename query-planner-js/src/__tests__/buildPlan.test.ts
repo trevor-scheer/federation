@@ -3907,7 +3907,7 @@ describe('Named fragments preservation', () => {
               }
             }
           }
-          
+
           fragment FooChildSelect on Foo {
             __typename
             foo
@@ -3922,7 +3922,7 @@ describe('Named fragments preservation', () => {
               }
             }
           }
-          
+
           fragment FooSelect on Foo {
             __typename
             foo
@@ -4096,7 +4096,7 @@ describe('Named fragments preservation', () => {
                   }
                 }
               }
-              
+
               fragment OnV on V {
                 a
                 b
@@ -4170,7 +4170,7 @@ describe('Named fragments preservation', () => {
               }
             }
           }
-          
+
           fragment Selection on A {
             x
             y
@@ -4264,7 +4264,7 @@ describe('Named fragments preservation', () => {
               }
             }
           }
-          
+
           fragment OnV on V {
             v1
             v2
@@ -4372,7 +4372,7 @@ describe('Named fragments preservation', () => {
               ...OnT @include(if: $test2)
             }
           }
-          
+
           fragment OnT on T {
             a
             b
@@ -4572,7 +4572,7 @@ describe('Named fragments preservation', () => {
                 id
               }
             }
-            
+
             fragment OuterFrag on Outer {
               inner {
                 v {
@@ -4711,7 +4711,7 @@ describe('Named fragments preservation', () => {
                 id
               }
             }
-            
+
             fragment OuterFrag on Outer {
               w
               inner {
@@ -4852,7 +4852,7 @@ describe('Named fragments preservation', () => {
                 id
               }
             }
-            
+
             fragment OuterFrag on Outer {
               inner {
                 v
@@ -4991,7 +4991,7 @@ describe('Named fragments preservation', () => {
                 id
               }
             }
-            
+
             fragment OuterFrag on Outer {
               w
               inner {
@@ -6815,7 +6815,7 @@ describe('named fragments', () => {
               }
             }
           }
-          
+
           fragment Fragment4 on I {
             __typename
             id1
@@ -6888,7 +6888,7 @@ describe('named fragments', () => {
               }
             }
           }
-          
+
           fragment Fragment4 on I {
             id1
             id2
@@ -7030,7 +7030,7 @@ describe('named fragments', () => {
                 id
               }
             }
-            
+
             fragment allTFields on T {
               v0
               v1
@@ -7178,7 +7178,7 @@ describe('named fragments', () => {
                   }
                 }
               }
-              
+
               fragment allUFields on U {
                 v0
                 v1

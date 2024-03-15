@@ -67,7 +67,7 @@ describe('lifecycle hooks', () => {
 
     await gateway.load();
 
-    expect(experimental_updateServiceDefinitions).toBeCalled();
+    expect(experimental_updateServiceDefinitions).toHaveBeenCalled();
     expect(gateway.schema!.getType('Furniture')).toBeDefined();
     await gateway.stop();
   });
@@ -127,13 +127,13 @@ describe('lifecycle hooks', () => {
 
     await schemaChangeBlocker1;
 
-    expect(mockUpdate).toBeCalledTimes(1);
-    expect(mockDidUpdate).toBeCalledTimes(1);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockDidUpdate).toHaveBeenCalledTimes(1);
 
     await schemaChangeBlocker2;
 
-    expect(mockUpdate).toBeCalledTimes(2);
-    expect(mockDidUpdate).toBeCalledTimes(2);
+    expect(mockUpdate).toHaveBeenCalledTimes(2);
+    expect(mockDidUpdate).toHaveBeenCalledTimes(2);
 
     const [firstCall, secondCall] = mockDidUpdate.mock.calls;
 
@@ -206,7 +206,7 @@ describe('lifecycle hooks', () => {
 
     await schemaChangeBlocker;
 
-    expect(schemaChangeCallback).toBeCalledTimes(1);
+    expect(schemaChangeCallback).toHaveBeenCalledTimes(1);
     await gateway.stop();
   });
 
@@ -235,7 +235,7 @@ describe('lifecycle hooks', () => {
       context: {},
     });
 
-    expect(experimental_didResolveQueryPlan).toBeCalled();
+    expect(experimental_didResolveQueryPlan).toHaveBeenCalled();
     await gateway.stop();
   });
 });

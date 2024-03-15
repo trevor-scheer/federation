@@ -23,5 +23,4 @@ module.exports = {
         diagnostics: false
       }
     },
-    prettierPath: require.resolve("prettier-2"),
 };

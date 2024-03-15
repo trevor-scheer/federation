@@ -150,7 +150,7 @@ describe('loadSupergraphSdlFromStorage', () => {
         roundRobinSeed: 0,
         logger,
       }),
-    ).rejects.toThrowError(
+    ).rejects.toThrow(
       new UplinkFetcherError(
         'An error occurred while fetching your schema from Apollo: 500 Internal Server Error',
       ),
@@ -171,7 +171,7 @@ describe('loadSupergraphSdlFromStorage', () => {
           compositionId: null,
           logger,
         }),
-      ).rejects.toThrowError(
+      ).rejects.toThrow(
         /An error occurred while fetching your schema from Apollo: 200 invalid json response body at https:\/\/example1.cloud-config-url.com\/cloudconfig\/ reason: Unexpected token/,
       );
     });
@@ -195,7 +195,7 @@ describe('loadSupergraphSdlFromStorage', () => {
           compositionId: null,
           logger,
         }),
-      ).rejects.toThrowError(
+      ).rejects.toThrow(
         new UplinkFetcherError(
           `An error occurred while fetching your schema from Apollo: \n${message}`,
         ),
@@ -215,7 +215,7 @@ describe('loadSupergraphSdlFromStorage', () => {
           compositionId: null,
           logger,
         }),
-      ).rejects.toThrowError(
+      ).rejects.toThrow(
         new UplinkFetcherError(
           'An error occurred while fetching your schema from Apollo: 500 Internal Server Error',
         ),

@@ -2453,7 +2453,7 @@ describe('validations', () => {
           }
         }
       `)
-    }).toThrowError(new GraphQLError(`The @defer and @stream directives cannot be used on ${rootKind} root type "${defaultRootName(rootKind as SchemaRootKind)}"`));
+    }).toThrow(new GraphQLError(`The @defer and @stream directives cannot be used on ${rootKind} root type "${defaultRootName(rootKind as SchemaRootKind)}"`));
   });
 
   test('allows nullable variable for non-nullable input field with default', () => {

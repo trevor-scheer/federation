@@ -230,7 +230,7 @@ describe('Managed gateway with explicit UplinkSupergraphManager', () => {
         }),
       });
 
-      await expect(gateway.load()).rejects.toThrowError(expectedMessage);
+      await expect(gateway.load()).rejects.toThrow(expectedMessage);
     },
   );
 
@@ -271,7 +271,7 @@ describe('Managed gateway with explicit UplinkSupergraphManager', () => {
       await uplinkManager.nextFetch();
 
       expect(hasFired).toBeTruthy();
-      expect(logger.error).toBeCalledWith(
+      expect(logger.error).toHaveBeenCalledWith(
         `UplinkSupergraphManager failed to update supergraph with the following error: ${expectedMessage}`,
       );
     },

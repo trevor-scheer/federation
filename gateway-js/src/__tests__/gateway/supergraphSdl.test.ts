@@ -246,7 +246,7 @@ describe('Using supergraphSdl dynamic configuration', () => {
         logger,
       });
 
-      await expect(gateway.load()).rejects.toThrowError(failureMessage);
+      await expect(gateway.load()).rejects.toThrow(failureMessage);
 
       expect(gateway.__testing().state.phase).toEqual('failed to load');
       // we don't want the `afterEach` to call `gateway.stop()` in this case
@@ -294,7 +294,7 @@ describe('Using supergraphSdl dynamic configuration', () => {
       expect(state.phase).toEqual('loaded');
       expect(compositionId).toEqual(testingFixturesDefaultCompositionId);
 
-      await expect(healthCheckCallback!(supergraphSdl)).rejects.toThrowError(
+      await expect(healthCheckCallback!(supergraphSdl)).rejects.toThrow(
         /The gateway subgraphs health check failed\. Updating to the provided `supergraphSdl` will likely result in future request failures to subgraphs\. The following error occurred during the health check/,
       );
     });

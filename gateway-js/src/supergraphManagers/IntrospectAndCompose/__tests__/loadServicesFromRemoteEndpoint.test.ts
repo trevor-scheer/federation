@@ -12,7 +12,7 @@ describe('loadServicesFromRemoteEndpoint', () => {
         serviceSdlCache,
         getServiceIntrospectionHeaders: async () => ({}),
       }),
-    ).rejects.toThrowError(
+    ).rejects.toThrow(
       "Tried to load schema for 'test' but no 'url' was specified.",
     );
   });
@@ -33,7 +33,7 @@ describe('loadServicesFromRemoteEndpoint', () => {
         serviceSdlCache,
         getServiceIntrospectionHeaders: async () => ({}),
       }),
-    ).rejects.toThrowError(
+    ).rejects.toThrow(
       /^Couldn't load service definitions for "test" at http:\/\/host-which-better-not-resolve.invalid\/graphql: request to http:\/\/host-which-better-not-resolve.invalid\/graphql failed, reason: getaddrinfo (ENOTFOUND|EAI_AGAIN)/,
     );
   });
