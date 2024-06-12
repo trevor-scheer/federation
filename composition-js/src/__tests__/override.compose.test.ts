@@ -1250,4 +1250,117 @@ describe("composition involving @override directive", () => {
       });
     });
   });
+
+  describe("subscription support", () => {
+    it("supports @override on subscription fields", () => {
+      const subgraph1 = {
+        name: "Subgraph1",
+        url: "https://Subgraph1",
+        typeDefs: gql`
+          type Query {
+            t: T
+          }
+
+          type Subscription {
+            t: T
+          }
+
+          type T @key(fields: "k") {
+            k: ID
+          }
+        `,
+      };
+
+      const subgraph2 = {
+        name: "Subgraph2",
+        url: "https://Subgraph2",
+        typeDefs: gql`
+          type Subscription {
+            t: T @override(from: "Subgraph1")
+          }
+
+          type T @key(fields: "k") {
+            k: ID
+            a: Int
+            b: Int
+          }
+        `,
+      };
+
+      const result = composeAsFed2Subgraphs([subgraph1, subgraph2]);
+      assertCompositionSuccess(result);
+
+      expect(result.supergraphSdl).toMatchInlineSnapshot(`
+        "schema
+          @link(url: \\"https://specs.apollo.dev/link/v1.0\\")
+          @link(url: \\"https://specs.apollo.dev/join/v0.4\\", for: EXECUTION)
+        {
+          query: Query
+          subscription: Subscription
+        }
+
+        directive @join__directive(graphs: [join__Graph!], name: String!, args: join__DirectiveArguments) repeatable on SCHEMA | OBJECT | INTERFACE | FIELD_DEFINITION
+
+        directive @join__enumValue(graph: join__Graph!) repeatable on ENUM_VALUE
+
+        directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean, overrideLabel: String) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+
+        directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+        directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
+
+        directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+
+        directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
+
+        directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+        scalar join__DirectiveArguments
+
+        scalar join__FieldSet
+
+        enum join__Graph {
+          SUBGRAPH1 @join__graph(name: \\"Subgraph1\\", url: \\"https://Subgraph1\\")
+          SUBGRAPH2 @join__graph(name: \\"Subgraph2\\", url: \\"https://Subgraph2\\")
+        }
+
+        scalar link__Import
+
+        enum link__Purpose {
+          \\"\\"\\"
+          \`SECURITY\` features provide metadata necessary to securely resolve fields.
+          \\"\\"\\"
+          SECURITY
+
+          \\"\\"\\"
+          \`EXECUTION\` features provide metadata necessary for operation execution.
+          \\"\\"\\"
+          EXECUTION
+        }
+
+        type Query
+          @join__type(graph: SUBGRAPH1)
+          @join__type(graph: SUBGRAPH2)
+        {
+          t: T @join__field(graph: SUBGRAPH1)
+        }
+
+        type Subscription
+          @join__type(graph: SUBGRAPH1)
+          @join__type(graph: SUBGRAPH2)
+        {
+          t: T @join__field(graph: SUBGRAPH2, override: \\"Subgraph1\\")
+        }
+
+        type T
+          @join__type(graph: SUBGRAPH1, key: \\"k\\")
+          @join__type(graph: SUBGRAPH2, key: \\"k\\")
+        {
+          k: ID
+          a: Int @join__field(graph: SUBGRAPH2)
+          b: Int @join__field(graph: SUBGRAPH2)
+        }"
+      `);
+    });
+  });
 });

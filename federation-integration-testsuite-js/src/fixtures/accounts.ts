@@ -28,11 +28,16 @@ export const typeDefs = gql`
   schema {
     query: RootQuery
     mutation: Mutation
+    subscription: Subscription
   }
 
   type RootQuery {
     user(id: ID!): User
     me: User @cacheControl(maxAge: 1000, scope: PRIVATE)
+  }
+
+  type Subscription {
+    user: User
   }
 
   type PasswordAccount @key(fields: "email") {

@@ -1228,5 +1228,33 @@ describe('buildQueryPlan', () => {
         }
       `);
     });
+
+    it(`subscription plan of overridden field`, () => {
+      const operationString = `#graphql
+        subscription UserSubscription {
+          user {
+            id
+          }
+        }
+      `;
+
+      const queryPlan = buildPlan(operationString);
+      expect(queryPlan).toMatchInlineSnapshot(`
+        QueryPlan {
+          Subscription {
+            Primary: {
+              Fetch(service: "reviews") {
+                {
+                  user {
+                    id
+                  }
+                }
+              }
+            },
+            }
+          },
+        }
+      `);
+    });
   });
 });

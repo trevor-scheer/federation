@@ -22,6 +22,10 @@ export const typeDefs = gql`
     topReviews(first: Int = 5): [Review]
   }
 
+  type Subscription {
+    user: User @override(from: "accounts")
+  }
+
   type Review @key(fields: "id") {
     id: ID!
     body(format: Boolean = false): String
