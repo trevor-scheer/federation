@@ -24,6 +24,7 @@ export const typeDefs = gql`
 
   type Subscription {
     user: User @override(from: "accounts")
+    s: String @override(from: "accounts")
   }
 
   type Review @key(fields: "id") {

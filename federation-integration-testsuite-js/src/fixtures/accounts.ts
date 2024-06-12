@@ -38,6 +38,7 @@ export const typeDefs = gql`
 
   type Subscription {
     user: User
+    s: String
   }
 
   type PasswordAccount @key(fields: "email") {

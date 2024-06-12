@@ -1256,5 +1256,29 @@ describe('buildQueryPlan', () => {
         }
       `);
     });
+
+    it(`subscription plan of overridden field - for non-entity-returning fields as well`, () => {
+      const operationString = `#graphql
+        subscription S {
+          s
+        }
+      `;
+
+      const queryPlan = buildPlan(operationString);
+      expect(queryPlan).toMatchInlineSnapshot(`
+        QueryPlan {
+          Subscription {
+            Primary: {
+              Fetch(service: "reviews") {
+                {
+                  s
+                }
+              }
+            },
+            }
+          },
+        }
+      `);
+    });
   });
 });
