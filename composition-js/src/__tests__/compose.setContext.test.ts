@@ -1331,4 +1331,43 @@ describe("setContext tests", () => {
       '[Subgraph1] @fromContext argument cannot be used on a field implementing an interface field "I.field".'
     );
   });
+
+  test("invalid context name shouldn't throw", () => {
+    const subgraph1 = {
+      name: "Subgraph1",
+      utl: "https://Subgraph1",
+      typeDefs: gql`
+        type Query {
+          t: T!
+        }
+
+        type T @key(fields: "id") @context(name: "") {
+          id: ID!
+          u: U!
+          prop: String!
+        }
+
+        type U @key(fields: "id") {
+          id: ID!
+          field(a: String): Int!
+        }
+      `,
+    };
+
+    const subgraph2 = {
+      name: "Subgraph2",
+      utl: "https://Subgraph2",
+      typeDefs: gql`
+        type Query {
+          a: Int!
+        }
+
+        type U @key(fields: "id") {
+          id: ID!
+        }
+      `,
+    };
+
+    expect(() => composeAsFed2Subgraphs([subgraph1, subgraph2])).not.toThrow();
+  });
 });
